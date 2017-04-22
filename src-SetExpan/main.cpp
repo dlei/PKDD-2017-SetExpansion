@@ -9,31 +9,19 @@
 #include "utils/utils.h"
 #include "utils/parameters.h"
 #include "utils/commandline_flags.h"
-#include "datapreprocessing/preprocessing.h"
 #include "singleSE.h"
-#include "multiSE.h"
 
 int main(int argc, char* argv[])
 {
 
     /*
     1) Usage command :
-    ./main -corpus apr -concept countries -suffix country -max_iter 10 -T 30 -alpha 0.7 -Q 150 -A 5
-    
+    ./main -corpus apr -concept laws -suffix test -K 60 -T 30 -alpha 0.7 -Q 150 -r 4
     2) more parameters settings can be found in utils/parameters.h
-
     */
     parseCommandFlags(argc, argv);
     updateParameters();
-    // cout << corpusName << endl;
-    // cout << outputSuffix << endl;
-    // cout << PARAM_PATTERN_ENSEMBLE_TIMES << endl;
-    // cout << PARAM_PATTERN_SET_SIZE_PERC << endl;
-    // cout << outputFileName << endl;
-    // cout << outputParameterFileName << endl;
-    // cout << inputSeedFileName << endl;
-    // cout << PARAM_PATTERN_TOPK << endl;
-    // cout << PARAM_ENTITY_TOPK << endl;
+
 
     /*
     Loading corpus files
@@ -54,8 +42,7 @@ int main(int argc, char* argv[])
     time (& Start);
     printf("Loading files\n");
     readEntityFeatureFile(inFileName, eid2patterns, pattern2eids, eid2Pattern2Strength);
-    // readEntityFeatureFileFast(inFileName, eid2patterns, pattern2eids, eid2Pattern2Strength);
-
+    
     // read in entity-type strength files
     unordered_map<int, unordered_set<string> > eid2types;
     unordered_map<string, unordered_set<int> > type2eids;
@@ -67,7 +54,7 @@ int main(int argc, char* argv[])
     dif = difftime (End, Start);
     cout << "!!!Completed loading file in " << dif << " second(s)." << endl;
 
-    // read in queries
+    // read in input queries
     vector<vector<int> > queries = readInQueries(inputSeedFileName);
     
     /*
@@ -93,12 +80,10 @@ int main(int argc, char* argv[])
         }
         printf("\n");
 
-
         expandSet(userInputSeeds, seedEids,
             eid2patterns, pattern2eids, eid2Pattern2Strength,
             eid2types, type2eids, eid2Type2Strength,
-            FLAG_DEBUG, FLAG_USE_TYPE, PARAM_MAX_ITER, eid2ename);
-
+            FLAG_DEBUG, FLAG_USE_TYPE, eid2ename);
 
         expandedEntitiesMultiRound.push_back(seedEids);
 
@@ -108,8 +93,6 @@ int main(int argc, char* argv[])
 
     saveSEResultMulti(outputFileName, userInputEntitiesMultiRound,
         expandedEntitiesMultiRound, eid2ename);
-
-    saveParameters(outputParameterFileName);
 
     return 0;
 }

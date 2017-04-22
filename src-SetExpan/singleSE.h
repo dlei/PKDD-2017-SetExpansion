@@ -38,7 +38,7 @@ inline void readEntityFeatureFile(const string &inputFileName,
                 vector<string> segs = splitBy(line, delim);
                 eid = stoi(segs[0]);
                 pattern = segs[1];
-                strength = stod(segs[2]); // last column is the EgoSet TF-IDF strength
+                strength = stod(segs[2]); // last column is the TF-IDF strength
 
                 // update eid -> patterns
                 if(eid2patterns.count(eid) > 0) {
@@ -74,73 +74,6 @@ inline void readEntityFeatureFile(const string &inputFileName,
     } else {
         cout << "Cannot open file: " << inputFileName << endl;
     }
-
-    printf("%s\n", "Finish loading files");
-    printf("Number of entities = %lu\n", eid2patterns.size());
-    printf("Number of patterns = %lu\n", pattern2eids.size());
-}
-
-inline void readEntityFeatureFileFast(const string &inputFileName,
-    unordered_map<int, unordered_set<string> > &eid2patterns,
-    unordered_map<string, unordered_set<int> > &pattern2eids,
-    unordered_map<int, unordered_map<string, double> > &eid2Pattern2Strength)
-{
-
-    int MAX_STRING = 1000;
-    int eid;
-    char skipgram[MAX_STRING];
-    double strength1, strength2;
-    unordered_map<int, vector<string> > eid2patternsTmp;
-    unordered_map<string, vector<int> > pattern2eidTmp;
-
-    FILE* in = tryOpen(inputFileName, "r");
-    int cnt = 0;
-    while(fscanf(in, "%d\t%[^\t]\t%lf\t%lf", &eid, skipgram, &strength1, &strength2 ) == 4) {
-        cnt ++ ; 
-        if (cnt % 1000000 == 0 and cnt != 0) {
-            printf("Finish loading %d lines\n", cnt);
-            fflush(stdout);
-        }
-
-        string pattern(skipgram);
-        
-        // update eid -> patterns
-        if(eid2patternsTmp.count(eid) > 0) {
-            eid2patternsTmp[eid].push_back(pattern);
-        } else {
-            vector<string> tmp;
-            tmp.push_back(pattern);
-            eid2patternsTmp[eid] = tmp;
-        }
-
-        // udpate pattern -> eids
-        if(pattern2eidTmp.count(pattern) > 0) {
-            pattern2eidTmp[pattern].push_back(eid);
-        } else {
-            vector<int> tmp;
-            tmp.push_back(eid);
-            pattern2eidTmp[pattern] = tmp;
-        }
-
-        // update (eid, pattern) -> strength
-        if(eid2Pattern2Strength.count(eid) > 0) {
-            eid2Pattern2Strength[eid][pattern] = strength1;
-        } else {
-            unordered_map<string, double> tmp;
-            tmp[pattern] = strength1;
-            eid2Pattern2Strength[eid] = tmp;
-        }
-    }
-    fclose(in);
-
-    for(auto ele:eid2patternsTmp) {
-        eid2patterns[ele.first] = unordered_set<string> (ele.second.begin(), ele.second.end());
-    }
-
-    for(auto ele:pattern2eidTmp) {
-        pattern2eids[ele.first] = unordered_set<int> (ele.second.begin(), ele.second.end());
-    }
-
 
     printf("%s\n", "Finish loading files");
     printf("Number of entities = %lu\n", eid2patterns.size());
@@ -228,6 +161,7 @@ inline void scorePattern(unordered_map<string, double> &candidatePattern2Strengt
     Currently, the score of each pattern is sum of the strength of 
     its attached "positive" entities minus the sum of the strength of
     its attached "negative" entities (with a discount 0.2)
+    NOTE: the negative examples are not used currently.
     */
 
     for(auto ele:seedEids) {
@@ -341,7 +275,6 @@ inline void samplePatterns(vector<string> &corePatterns,
     int nOfPatterns = topPatternWStrength.size(); 
     corePatternIdxs.insert(rand() % nOfPatterns); 
     int PARAM_PATTERN_SET_SIZE = (int) (sample_percentage * nOfPatterns); 
-    // PARAM_PATTERN_SET_SIZE = PARAM_PATTERN_SET_SIZE > nOfPatterns ? nOfPatterns: PARAM_PATTERN_SET_SIZE;
 
     for(int j = 0; j < PARAM_PATTERN_SET_SIZE; j++)
     {
@@ -416,7 +349,6 @@ inline void scoreEntitySet(unordered_map<int, double> &candidateEntity2Score,
         for(auto candidate:tmp) {
             if(TYPE_FLAG) {
                 if (eid2Type2Strength[candidate].count(coreType) > 0) {
-                    // filter those entity that do not match the coreType
                     candidateEntities.insert(candidate);
                 }
             } else {
@@ -424,19 +356,10 @@ inline void scoreEntitySet(unordered_map<int, double> &candidateEntity2Score,
             }
 
         }
-        // candidateEntities.insert(tmp.begin(), tmp.end());
     }
 
     for(auto candidate:candidateEntities) {
         double score = 0;
-        // if(TYPE_FLAG) {
-        //     if (eid2Type2Strength[candidate].count(coreType) > 0) {
-        //         score += 0;
-        //     } else {
-        //         score += NEG_INF; // filter those entity that do not match the coreType
-        //     }      
-        // }
-
         for(auto seed:seedEids) {
             score += scoreEntity(candidate, seed, eid2Pattern2Strength, corePatterns);
         }
@@ -456,8 +379,7 @@ inline void expandSet( const unordered_set<int> &userInputSeeds,
     unordered_map<int, unordered_map<string, double> > &eid2Type2Strength,
 
     bool DEBUG_FLAG,
-    bool TYPE_FLAG,
-    int MAX_ITER, 
+    bool TYPE_FLAG, 
     unordered_map<int, string> &eid2ename
 
     )
@@ -471,8 +393,7 @@ inline void expandSet( const unordered_set<int> &userInputSeeds,
     // Initialize the negative entity set
     vector<int> negativeEids = {};
 
-    // One epoch bootstrap
-    for(int iter = 0; iter < MAX_ITER; iter++)
+    for(int iter = 0; iter < (PARAM_EXPANDED_SIZE_K / PARAM_AVERAGE_RANK ); iter++)
     {
         if(DEBUG_FLAG) {
             printf("Iteration: %d\n", iter);
@@ -508,10 +429,10 @@ inline void expandSet( const unordered_set<int> &userInputSeeds,
         vector<pair<string, double> > topPatternWStrength = selectTopKByKey(candidatePattern2Strength, PARAM_PATTERN_TOPK);
         if(DEBUG_FLAG) {
             printf("Number of quality patterns selected = %lu\n", topPatternWStrength.size());
-            for(int i = 0; i < 10; ++i) {
-                printf("Quality pattern: %s [with score = %f]\n", 
-                    topPatternWStrength[i].first.c_str(), topPatternWStrength[i].second);
-            }
+            // for(int i = 0; i < 100; ++i) {
+            //     printf("Quality pattern: %s [with score = %f]\n", 
+            //         topPatternWStrength[i].first.c_str(), topPatternWStrength[i].second);
+            // }
         }
 
         /*
@@ -545,8 +466,7 @@ inline void expandSet( const unordered_set<int> &userInputSeeds,
 
             // Step 3.3: Ranking-based ensemble, select top PARAM_TOPK_EACH_BATCH entities
             // to avoid all top k entites have already existing in list
-            // IDEA_NOTE: This might serve as a stopping criterion
-            int top_size = PARAM_TOPK_EACH_BATCH + seedEids.size(); 
+            int top_size = 20 + seedEids.size(); 
             top_size = top_size < candidateEntity2Score.size() ? top_size : candidateEntity2Score.size();
             vector<pair<int, double> > sortedEntity2Score = selectTopKByKey(candidateEntity2Score, top_size);
             
@@ -555,7 +475,7 @@ inline void expandSet( const unordered_set<int> &userInputSeeds,
             vector<int> extractedEids; // extracted eids in current batch
             for(auto ele:sortedEntity2Score)
             {
-                if (count >= PARAM_TOPK_EACH_BATCH) {
+                if (count >= 20) {
                     break;
                 }
                 int entity = ele.first;
@@ -594,8 +514,8 @@ inline void expandSet( const unordered_set<int> &userInputSeeds,
         for(auto ele:sortedEid2mrr)
         {
             double strength = ele.second;
-            // if(strength < PARAM_RANK_THRESHOLD) {
-            if(ct >= PARAM_ENTITY_TOPK) { // each iteration will finally add in top A entites
+            // each iteration will add the entity with average rank >= PARAM_AVERAGE_RANK
+            if(strength < (PARAM_PATTERN_ENSEMBLE_TIMES / PARAM_AVERAGE_RANK) ) { 
                 break;
             }
             ct += 1;
@@ -626,42 +546,6 @@ inline void expandSet( const unordered_set<int> &userInputSeeds,
     }
 }
 
-inline void saveSEResult(const string &outputFileName,
-    const unordered_set<int> &userInputSeeds,
-    const vector<int> &seedEids,
-    unordered_map<int, string> &eid2ename)
-{
-    ofstream outFile;
-    outFile.open(outputFileName);
-
-    if(outFile.is_open()) {
-        // Writing seed first
-        outFile << "Seeds: ";
-        for(auto seedEntityID:userInputSeeds) {
-            string entity_name = eid2ename[seedEntityID];
-            outFile << "(" << seedEntityID << "," << entity_name << ") ";
-        }
-        outFile << "\n";
-
-        outFile << "----------------------------------------\n";
-
-        // Writing expanded entities in order
-        for(auto expandedEntityID:seedEids)
-        {
-            string entity_name = eid2ename[expandedEntityID];
-            outFile << expandedEntityID << "\t" << entity_name << "\n";
-        }
-        outFile << "========================================\n";
-
-        outFile.close();
-
-    } else {
-        cout << "Could not write into file: " << outputFileName << endl;
-    }
-
-    cout << "Finish writing results to files!!!" << endl;
-}
-
 inline void saveSEResultMulti(const string &outputFileName,
     const vector<unordered_set<int> > &userInputEntitiesMultiRound,
     const vector<vector<int> > &expandedEntitiesMultiRound,
@@ -687,19 +571,14 @@ inline void saveSEResultMulti(const string &outputFileName,
             for(auto seedEntityID:userInputEntitiesMultiRound[i]) {
                 string entity_name = eid2ename[seedEntityID];
                 outFile << seedEntityID << "\t" << entity_name << "\n";
-                // outFile << "(" << seedEntityID << "," << entity_name << ") ";
             }
-            // outFile << "\n";
 
             outFile << "-----------------------------------------\n";
-
-            // Writing expanded entities in order
             for(auto expandedEntityID:expandedEntitiesMultiRound[i])
             {
                 string entity_name = eid2ename[expandedEntityID];
                 outFile << expandedEntityID << "\t" << entity_name << "\n";
             }
-            // outFile << "========================================\n";
         }
         outFile.close();
 
@@ -709,335 +588,5 @@ inline void saveSEResultMulti(const string &outputFileName,
 
     cout << "Finish writing results to files!!!" << endl;
 }
-
-
-// inline void saveEntityPairSimilarity(const string &outputFileName, 
-//     const vector<vector<double> > &eidPairWSimilarity)
-// {
-//     ofstream outFile;
-//     outFile.open(outputFileName);
-
-//     if(outFile.is_open()) {
-//         for(auto ele:eidPairWSimilarity) {
-//             outFile << ele[0] << "\t" << ele[1] << "\t" << ele[2] << "\n";
-//         }
-//         outFile.close();
-//     } else {
-//         cout << "Could not write into file: " << outputFileName << endl;
-//     }
-// }
-
-/*
-inline void singleSetExpansion( const unordered_set<int> &userInputSeeds,
-    vector<int> &seedEids,
-    unordered_map<int, unordered_set<string> > &eid2patterns,
-    unordered_map<string, unordered_set<int> > &pattern2eids,
-    unordered_map<int, unordered_map<string, double> > &eid2Pattern2Strength,
-    bool DEBUG_FLAG,
-    int MAX_ITER )
-{
-
-    // Initialize the entity seed set to expand
-    for(auto ele:userInputSeeds) {
-        seedEids.push_back(ele);
-    }
-
-    for(int iter = 0; iter < MAX_ITER; iter++)
-    {
-        if(DEBUG_FLAG) {
-            printf("Iteration: %d\n", iter);
-        }
-
-
-        // Step0: Cache current seed set and check later whether there is no entites added in
-        unordered_set<int> prev_seeds (seedEids.begin(), seedEids.end() );
-        if(DEBUG_FLAG) {
-            printf("Number of entities currently in set = %lu\n", prev_seeds.size());
-        }
-
-
-        // Step1: Obtain Candidate Patterns && Pattern Diversity Filtering
-        unordered_map<string, double> candidatePattern2Strength;
-        for(auto ele:seedEids) {
-            for(auto patternStrengthPiar:eid2Pattern2Strength[ele]) {
-                string pattern = patternStrengthPiar.first;
-                double strength = patternStrengthPiar.second;
-
-                int patternDiversity = pattern2eids[pattern].size();
-                if(patternDiversity < PARAM_PATTERN_DIVIERSITY_LOW or patternDiversity > PARAM_PATTERN_DIVIERSITY_HIGH) {
-                    continue; // filter patterns extracting < 3 or > 30 entities
-                } else { // scoring the pattern left
-                    if(candidatePattern2Strength.count(pattern) > 0) {
-                        candidatePattern2Strength[pattern] += strength;
-                    } else {
-                        candidatePattern2Strength[pattern] = strength;
-                    }
-                }
-            }
-        }
-        if(DEBUG_FLAG) {
-            printf("Number of patterns after diversity filtering = %lu\n", candidatePattern2Strength.size());
-        }
-
-        // Step2: Pattern Quality Ranking & Filtering
-        vector<pair<string, double> > sortedPattern2Strength = sortMapByKey(candidatePattern2Strength);
-        vector<string> corePatterns;
-        int nOfSeedEids = seedEids.size();
-        int count = 0;
-        for(auto ele:sortedPattern2Strength)
-        {
-            if(count >= PARAM_PATTERN_TOPK) {
-                break;
-            }
-            count += 1;
-
-            string pattern = ele.first;
-            double strength = ele.second;
-
-            if( (strength/nOfSeedEids) > PARAM_PATTERN_QUALITY_THRES) {
-                corePatterns.push_back(pattern);
-            }
-        }
-
-        if(corePatterns.size() == 0)
-        {
-            printf("!!!Termination: Due to no new pattern introduced at iteration %d \n", iter);
-            break;
-        }
-        if(DEBUG_FLAG) {
-            printf("Number of quality patterns selected = %lu\n", corePatterns.size());
-        }
-
-        // Step3: Obtain candidate entities
-        unordered_set<int> candidateEntities;
-        for(auto corePattern:corePatterns)
-        {
-            unordered_set<int> tmp = pattern2eids[corePattern];
-            candidateEntities.insert(tmp.begin(), tmp.end());
-        }
-        if(DEBUG_FLAG) {
-            printf("Number of candidate entities = %lu\n", candidateEntities.size());
-        }
-
-        // Step4: Scoring each candidate entity []
-        unordered_map<int, double> candidateEntity2Score;
-        // int i = 0;
-        for(auto candidate:candidateEntities) {
-            double score = 0;
-            for(auto seed:seedEids) {
-                score += scoreEntity(candidate, seed, eid2Pattern2Strength, corePatterns);
-            }
-            // cout << "Fnish scoring candidate entity" << i++ << endl;
-            candidateEntity2Score[candidate] = score;
-        }
-        if(DEBUG_FLAG) {
-            printf("Finish scoring all candidate entities\n");
-        }
-
-        // Step5: Entity Quality Ranking & Expanding
-        vector<pair<int, double> > sortedEntity2Score = sortMapByKey(candidateEntity2Score);
-        count = 0;
-        for(auto ele:sortedEntity2Score)
-        {
-            if (count >= PARAM_ENTITY_TOPK) {
-                break;
-            }
-            int entity = ele.first;
-            if(DEBUG_FLAG) {
-                double strength = ele.second;
-                printf("%f\n", strength);
-            }
-
-            bool alreadyExist = false;
-            for(auto e:seedEids) {
-                if (e == entity) { // already exist
-                    alreadyExist = true;
-                    break;
-                }
-            }
-            if(alreadyExist) {
-                continue;
-            } else {
-                seedEids.push_back(entity);
-                count += 1;
-            }
-        }
-        if(DEBUG_FLAG) {
-            printf("Number of entities in set after direct expansion = %lu\n", seedEids.size());
-        }
-
-        // Step6: Coherence based pruning, delete several entities after first step
-        int newSize = seedEids.size();
-        unordered_map<int, double> entity2totalScore;
-        for(auto entity1:seedEids) {
-            double totalScore = 0;
-            for(auto entity2:seedEids) {
-                if(entity2 == entity1) {
-                    continue;
-                } else {
-                    // TODO: Change the entity scoring later
-                    totalScore += scoreEntity(entity1, entity2, eid2Pattern2Strength, corePatterns);
-                }
-            }
-            totalScore = 0.5*totalScore/(newSize-1) + 0.5*candidateEntity2Score[entity1];
-            entity2totalScore[entity1] = totalScore;
-        }
-
-        vector<double> tmp;
-        for(auto ele:entity2totalScore) { tmp.push_back(ele.second);}
-        pair<double, double> stats = calculateMeanAndStddev(tmp);
-        double avesim = stats.first;
-        double st = stats.second;
-
-        vector<int> seedEidsTmp;
-        for(auto entity:seedEids) { // Filter entities based on coherence
-            if (entity2totalScore[entity] >= (avesim - st*PARAM_ENTITY_ZSCORE_THRES) ) {
-                seedEidsTmp.push_back(entity);
-            }
-        }
-        for(auto seedEntity:userInputSeeds) { // Add in seeds back
-            bool alreadyExist = false;
-            for(auto ele:seedEidsTmp) {
-                if(ele == seedEntity) {
-                    alreadyExist = true;
-                    break;
-                }
-            }
-            if(not alreadyExist) {
-                seedEidsTmp.push_back(seedEntity);
-            }
-        }
-
-        seedEids.clear();
-        for(auto ele:seedEidsTmp) {
-            seedEids.push_back(ele);
-        }
-        if(DEBUG_FLAG) {
-            printf("Number of entities in set after coherence pruning = %lu\n", seedEids.size());
-        }
-
-
-        unordered_set<int> seedEidsSet (seedEids.begin(), seedEids.end());
-        if(seedEidsSet == prev_seeds) {
-            printf("!!!Termination: Due to no entity set change at Iteration %d \n", iter);
-            break;
-        }
-
-        if(DEBUG_FLAG) {
-            printf("----------------------------------------\n");
-        }
-
-    }
-}
-
-inline void singleSetExpansionWrapper( const unordered_set<int> &userInputSeeds,
-    vector<int> &seedEids,
-    unordered_map<int, unordered_set<string> > &eid2patterns,
-    unordered_map<string, unordered_set<int> > &pattern2eids,
-    unordered_map<int, unordered_map<string, double> > &eid2Pattern2Strength,
-    bool DEBUG_FLAG,
-    bool SEED_ENSEMBLE_FLAG
-    )
-{
-    if(not SEED_ENSEMBLE_FLAG)  // no seed bagging
-    {
-        cout << "No Seed Ensemble!!!" << endl;
-        singleSetExpansion(userInputSeeds, seedEids, eid2patterns, pattern2eids,
-            eid2Pattern2Strength, DEBUG_FLAG, PARAM_MAX_ITER);
-    }
-    else  // with seed bagging
-    {
-        cout << "Seed Ensemble!!!" << endl;
-
-        // Store each branches results
-        vector<vector<int> > resultPools;
-
-        // Step1: One iteration expansion from reall user input seeds
-        vector<int> firstRoundExpandedEids;
-        singleSetExpansion(userInputSeeds, firstRoundExpandedEids, eid2patterns, pattern2eids,
-            eid2Pattern2Strength, DEBUG_FLAG, 1);
-
-        unordered_set<int> newlyAddedEids; // eids expanded in first iteration
-        for(auto ele:firstRoundExpandedEids) {
-            if(userInputSeeds.count(ele) > 0) {
-                continue;
-            } else {
-                newlyAddedEids.insert(ele);
-            }
-        }
-        printf("Number of newly added eids = %lu \n", newlyAddedEids.size());
-
-        // Step2.1: Start sampling 1 eid from original seed and 2 eids from newly expanded
-        int PARAM_BRANCH = 12; // 12 branches;
-        int PARAM_SELECTED_THRES = 3; // include one entitiy if it matches over 3 branch
-        srand (123456789);
-        unordered_set<int> userInputSeedTmp;
-        vector<int> seedEidsTmp;
-        for(int i = 0; i < PARAM_BRANCH; ++i)
-        {
-            userInputSeedTmp.insert(randomSelectOneInt(userInputSeeds));
-            int a = randomSelectOneInt(newlyAddedEids);
-            int b = randomSelectOneInt(newlyAddedEids);
-            while (a == b) {
-                b = randomSelectOneInt(newlyAddedEids);
-            }
-            userInputSeedTmp.insert(a);
-            userInputSeedTmp.insert(b);
-
-            cout << "Newly constructed \"seed\": ";
-            for(auto ele:userInputSeedTmp) {
-                cout << ele << " ";
-            }
-            cout << "\n";
-
-            singleSetExpansion(userInputSeedTmp, seedEidsTmp, eid2patterns, pattern2eids,
-                    eid2Pattern2Strength, DEBUG_FLAG, PARAM_MAX_ITER);
-            resultPools.push_back(seedEidsTmp);
-
-            userInputSeedTmp.clear();
-            seedEidsTmp.clear();
-        }
-
-        // Step2.2: Add in results from original seed expansion
-        singleSetExpansion(userInputSeeds, seedEidsTmp, eid2patterns, pattern2eids,
-                    eid2Pattern2Strength, DEBUG_FLAG, PARAM_MAX_ITER);
-        resultPools.push_back(seedEidsTmp);
-
-
-        // Step3: Ensemble resultPools
-        cout << "Number of branches = " << resultPools.size() << endl;
-        unordered_map<int, double> eid2finalScore;
-        // int selectedSize = resultPools.back().size();
-        for(auto ele:resultPools) {
-            for(int i = 0; i < ele.size(); i++) {
-                int eid = ele[i];
-                double score = 1;
-                // if (i == 0) {
-                //     score = 1;
-                // } else {
-                //     score = 1 / log( i+1 );
-                // }
-
-                if(eid2finalScore.count(eid) > 0) {
-                    eid2finalScore[eid] += score;
-                } else {
-                    eid2finalScore[eid] = score;
-                }
-            }
-        }
-
-
-
-        vector<pair<int, double> > sortedEid2finalScore = sortMapByKey(eid2finalScore);
-        for(auto ele:sortedEid2finalScore) { // majority vote
-            int eid = ele.first;
-            double score = ele.second;
-            if(score >= PARAM_SELECTED_THRES) {
-                seedEids.push_back(eid);
-            }
-        }
-    }
-}
-*/
 
 #endif
