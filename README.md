@@ -18,7 +18,9 @@ The input corpus of SetExpan framework should be put under folder "./data/<Corpu
 * eidCTypeStrengths.txt: each line represents a tuple of (eid, coarse-grained type, weight), seperated by tab. 
 * entity2id.txt: each line represents a pair of (entityName, entityID), seperated by tab. 
 
-Some sample corpus are put on [Dataverse](http://dx.doi.org/10.7910/DVN/S4W4TI).
+NOTE: We calculate multiple (eid, context-feature) strengths in the raw input, the **last column** is the TF-IDF weight scaling reported in the paper. 
+
+Some sample corpus are put on [Google Drive](https://drive.google.com/open?id=0B--ZKWD8ahE4TmhuMndURVlVaG8).
 
 ## Query Input
 
@@ -33,7 +35,7 @@ The input query of SetExpan framework can be put either under folder "./data/<Co
 EXIT
 ```
 
-Some sample queries are put on [Dataverse](http://dx.doi.org/10.7910/DVN/S4W4TI).
+Some sample queries are put on [Google Drive](https://drive.google.com/open?id=0B--ZKWD8ahE4TmhuMndURVlVaG8).
 
 
 ## Run
